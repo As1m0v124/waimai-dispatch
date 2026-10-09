@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>外卖平台派单系统 · MVP</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+<!-- ======================= 顶栏 ======================= -->
+<header class="topbar">
+  <div class="brand">
+    <span class="logo">外卖</span>
+    <div>
+      <h1>外卖平台派单系统</h1>
+      <p class="sub">顾客点单 · 平台派单 · 骑手派送</p>
+    </div>
+  </div>
+
+  <div class="clockbox">
+    <div class="clock" id="simClock">10:00:00</div>
+    <div class="clockmeta">
+      <span id="nextDispatch">下次派单 02:00</span>
+      <span class="dot-sep">·</span>
+      <span id="roundInfo">第 0 轮</span>
+    </div>
+  </div>
+
+  <div class="controls">
+    <button id="intakeToggle" class="btn intake-toggle" title="一键切换是否允许进单">
+      <i class="dot"></i><span id="intakeToggleText">允许进单</span>
+    </button>
+    <label class="ctl">
+      <span>倍速</span>
+      <select id="speedSel">
+        <option value="1">1x</option>
+        <option value="5">5x</option>
+        <option value="20" selected>20x</option>
+        <option value="60">60x</option>
+        <option value="200">200x</option>
+        <option value="600">600x</option>
+      </select>
+    </label>
+    <button id="pauseBtn" class="btn">暂停</button>
+    <button id="dispatchBtn" class="btn primary">立即派单</button>
+    <button id="resetBtn" class="btn ghost">重置</button>
+    <button id="sidebarBtn" class="btn" title="打开/收起运营分析侧边栏">运营分析</button>
+        <!-- 初始状态写「连接中」而不是「已连接」：页面在任何请求成功之前
+             都不该宣称自己连上了（之前这里硬写成"已连接"，于是从磁盘直接打开
+             index.html 时界面看起来一切正常、其实一个接口都没通）。 -->
+        <span id="connState" class="conn">连接中…</span>
+  </div>
+</header>
+
+<!-- ======================= 页签 ======================= -->
+<nav class="tabs">
+  <button class="tab active" data-view="customer">顾客点单</button>
+  <button class="tab" data-view="console">平台派单台</button>
+  <button class="tab" data-view="rider">骑手端</button>
+</nav>
+
+<div id="toast" class="toast"></div>
+
+<main>
+
+<!-- ======================= 顾客端 ======================= -->
+<section class="view active" id="view-customer">
+  <div class="grid-2">
+
+    <div class="card">
+      <div class="card-hd">
+        <h2>下单</h2>
+        <span class="hint">填写姓名、电话、地址、备注</span>
+      </div>
+      <div class="card-bd">
+        <div id="intakeBanner" class="intake-banner"></div>
+        <div class="form">
+          <label>姓名 <span class="req">*</span>
+            <input id="cName" placeholder="例如：张伟" maxlength="20">
+          </label>
+          <label>电话 <span class="req">*</span>
+            <input id="cPhone" placeholder="例如：13800001234" maxlength="20">
+          </label>
+          <label class="full">地址 <span class="req">*</span>
+            <input id="cAddress" placeholder="例如：阳光小区 3 栋 502" maxlength="60">
+          </label>
+          <label class="full">备注
+            <input id="cNote" placeholder="例如：不要辣、放门口" maxlength="60">
+          </label>
+          <label class="full">商家
+            <select id="cMerchant"></select>
+          </label>
+        </div>
+
+        <div class="pickwrap">
+          <div class="pickmap-hd">
+            <span>送达位置</span>
+            <span class="hint" id="pickInfo">在地图上点一下选位置；不选就随机生成</span>
+          </div>
+          <canvas id="pickMap" class="pickmap"></canvas>
+          <div class="row-btns">
+            <button class="btn small ghost" id="randomFill" title="随机填一份顾客信息，不提交">随机填写</button>
+            <select id="randomCount" class="mini">
+              <option value="1">1 单</option>
+              <option value="3">3 单</option>
+              <option value="5">5 单</option>
+              <option value="10">10 单</option>
+            </select>
+            <button class="btn small" id="randomOrder" title="直接随机下单，不走表单">一键随机下单</button>
+            <button class="btn small primary" id="submitOrder">提交订单</button>
+          </div>
+        </div>
+        <div id="orderMsg" class="msg"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-hd">
+        <h2>订单与五个时间点</h2>
+        <label class="hint toggle"><input type="checkbox" id="showAllOrders"> 显示全部订单</label>
+      </div>
+      <div class="card-bd">
+        <div id="myOrders" class="orderlist"></div>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<!-- ======================= 平台派单台 ======================= -->
+<section class="view" id="view-console">
+  <div class="console">
+
+    <div class="card mapcard">
+      <div class="card-hd">
+        <h2>城市实时地图</h2>
+        <span id="mapFocus" class="focuschip"></span>
+        <div class="legend">
+          <span><i class="lg merchant"></i>商家</span>
+          <span><i class="lg rider"></i>骑手</span>
+          <span><i class="lg pickup"></i>取餐点</span>
+          <span><i class="lg drop"></i>送达点</span>
+          <span><i class="lg pooled"></i>未派单</span>
+        </div>
+      </div>
+      <div class="card-bd mapbd">
+        <canvas id="map" class="map"></canvas>
+        <div class="mapnote" id="mapNote">
+          地图为 10km × 10km 的模拟城市，距离按 1.4 × 直线距离 折算成街面里程
+        </div>
+      </div>
+    </div>
+
+    <div class="side">
+
+      <div class="card highlight">
+        <div class="card-hd">
+          <h2>停单 / 进单控制</h2>
+          <span class="pill" id="intakePill">进单中</span>
+        </div>
+        <div class="card-bd">
+          <div class="intake-status" id="intakeStatus"></div>
+          <div class="row-btns" style="justify-content:flex-start;margin-top:10px">
+            <button class="btn small primary" id="intakeCardToggle">一键停止进单</button>
+            <span class="hint">阈值快速设置</span>
+            <button class="btn small ghost preset" data-ratio="30">30%</button>
+            <button class="btn small ghost preset" data-ratio="50">50%</button>
+            <button class="btn small ghost preset" data-ratio="70">70%</button>
+            <button class="btn small ghost preset" data-ratio="90">90%</button>
+          </div>
+          <div class="cfg" style="margin-top:10px">
+            <label class="check"><input type="checkbox" id="cfgAcceptOrders"> 允许进单（管理平台手动开关）</label>
+            <label>停单阈值：待派单占比 ≥ (%)
+              <input type="number" id="cfgStopRatio" min="0" max="100" step="5">
+            </label>
+            <label>当前单量低于此数不触发
+              <input type="number" id="cfgStopMin" min="0" max="500" step="1">
+            </label>
+            <label>累计订单上限
+              <input type="number" id="cfgMaxTotal" min="10" max="100000" step="50">
+            </label>
+          </div>
+          <p class="sb-note">
+            停单阈值按<b>占比</b>判定：待派单 ÷（待派单 + 配送中）。
+            只数池子里有多少单不行 —— 10 单在 10 单的系统里该停了，
+            在 200 单的系统里却完全正常。
+            阈值填 <b>50</b> 表示待派单占到一半就停单。
+          </p>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-hd"><h2>运行指标</h2></div>
+        <div class="card-bd">
+          <div class="kpis" id="kpi"></div>
+          <!-- 顺路占比就在上面这个格子里，所以调节它的开关也必须在这儿，
+               不能放在滚到 2800px 以下才看得见的「派单参数」区。 -->
+          <label class="check quick-toggle">
+            <input type="checkbox" id="kpiPostpone">
+            兜底单推迟一轮再派（提高顺路占比）
+          </label>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-hd">
+          <h2>订单池</h2>
+          <span class="hint" id="poolHint">等待派单</span>
+        </div>
+        <div class="card-bd">
+          <div id="poolList" class="poollist"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-hd">
+          <h2>骑手</h2>
+          <span class="hint" id="riderHint">状态与接单上限</span>
+          <span class="push rideradd">
+            <select id="addRiderCount">
+              <option value="1">加 1 人</option>
+              <option value="2">加 2 人</option>
+              <option value="3">加 3 人</option>
+              <option value="5">加 5 人</option>
+            </select>
+            <button class="btn small primary" id="addRiderBtn">新增骑手</button>
+          </span>
+        </div>
+        <div class="card-bd">
+          <div id="riderList" class="riderlist"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-hd"><h2>进行中的订单</h2></div>
+        <div class="card-bd">
+          <div id="activeOrders" class="activelist"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-hd">
+          <h2>距离模型 / 路网</h2>
+          <span class="hint" id="netHint"></span>
+        </div>
+        <div class="card-bd">
+          <div class="netbox">
+            <label>当前路网
+              <select id="netSel"></select>
+            </label>
+            <button class="btn small" id="netApply">切换（会重置模拟）</button>
+          </div>
+          <div id="netInfo" class="netinfo"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-hd">
+          <h2>派单参数</h2>
+          <span class="hint">改完立即生效</span>
+        </div>
+        <div class="card-bd">
+          <div class="cfg" id="cfgBox">
+            <label>派单节拍（秒）
+              <input type="number" id="cfgInterval" min="10" max="3600" step="10">
+            </label>
+            <label>顺路阈值：绕路 ≤（米）
+              <input type="number" id="cfgDetourM" min="0" max="20000" step="50">
+            </label>
+            <label>顺路阈值：绕路 / 本单 ≤
+              <input type="number" id="cfgDetourRatio" min="0" max="10" step="0.05">
+            </label>
+            <label>负载惩罚（米/单）
+              <input type="number" id="cfgLoad" min="0" max="10000" step="10">
+            </label>
+            <label>准时口径（分钟）
+              <input type="number" id="cfgSla" min="1" max="600" step="1">
+            </label>
+            <label>自动下单间隔（秒）
+              <input type="number" id="cfgAutoEvery" min="3" max="3600" step="1">
+            </label>
+            <label class="check"><input type="checkbox" id="cfgAutoOrder"> 自动生成顾客订单</label>
+            <label class="check"><input type="checkbox" id="cfgAvoidWait"> 出餐没好时先去送手上的餐</label>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-hd">
+          <h2>顺路占比调节</h2>
+          <span class="hint">兜底单先留着，等下一轮看有没有顺路的</span>
+        </div>
+        <div class="card-bd">
+          <div class="cfg" id="postponeBox">
+            <label class="check"><input type="checkbox" id="cfgPostpone">
+              兜底单推迟到下一轮（ACA 式等待）</label>
+            <label>最多推迟几轮
+              <input type="number" id="cfgPostponeRounds" min="0" max="20" step="1">
+            </label>
+            <label>最多等（分钟）
+              <input type="number" id="cfgPostponeWait" min="0" max="60" step="1">
+            </label>
+            <label>队列闸门（× 有余量的骑手）
+              <input type="number" id="cfgPostponeFactor" min="0" max="3" step="0.1">
+            </label>
+            <div class="cfg-note" id="postponeHint"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-hd"><h2>派单日志</h2></div>
+        <div class="card-bd">
+          <div id="logList" class="loglist"></div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ======================= 骑手端 ======================= -->
+<section class="view" id="view-rider">
+  <div class="grid-2">
+    <div class="card">
+      <div class="card-hd"><h2>选择骑手</h2><span class="hint">点击查看他的路线与订单</span></div>
+      <div class="card-bd"><div id="riderPicker" class="riderpick"></div></div>
+    </div>
+    <div class="card">
+      <div class="card-hd"><h2>配送任务</h2><span class="hint" id="riderHead"></span></div>
+      <div class="card-bd"><div id="riderDetail" class="riderdetail"></div></div>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<!-- ======================= 侧边栏：运营分析 ======================= -->
+<aside id="sidebar" class="sidebar">
+  <div class="sb-hd">
+    <h2>运营分析</h2>
+    <button id="sidebarClose" class="fcx" title="收起">&times;</button>
+  </div>
+
+  <div class="sb-bd">
+
+    <!-- 订单热力分布 -->
+    <section class="sb-card">
+      <h3>订单热力分布</h3>
+      <div class="sb-row">
+        <label class="check"><input type="checkbox" id="heatOn"> 在地图上叠加</label>
+        <select id="heatMode">
+          <option value="orders">按订单量</option>
+          <option value="pressure">按运力压力</option>
+          <option value="ontime">按准时率</option>
+        </select>
+      </div>
+      <div class="sb-row">
+        <label class="sb-mini">窗口
+          <select id="heatWindow">
+            <option value="15">最近 15 分钟</option>
+            <option value="30">最近 30 分钟</option>
+            <option value="60" selected>最近 60 分钟</option>
+            <option value="120">最近 2 小时</option>
+            <option value="0">全部历史</option>
+          </select>
+        </label>
+        <label class="sb-mini">格数
+          <select id="heatCells">
+            <option value="4">4 × 4</option>
+            <option value="6">6 × 6</option>
+            <option value="8" selected>8 × 8</option>
+            <option value="10">10 × 10</option>
+            <option value="14">14 × 14</option>
+          </select>
+        </label>
+      </div>
+      <div id="heatLegend" class="heatlegend"></div>
+    </section>
+
+    <!-- 运力建议 -->
+    <section class="sb-card">
+      <h3>运力建议</h3>
+      <div id="advice" class="advice"></div>
+    </section>
+
+    <!-- 区域研判 -->
+    <section class="sb-card">
+      <h3>区域研判 <span class="hint" id="zoneHint"></span></h3>
+      <div id="zoneList" class="zonelist"></div>
+    </section>
+
+    <!-- AI 分析 -->
+    <section class="sb-card">
+      <div class="sb-hd2">
+        <h3>AI 分析</h3>
+        <span id="llmState" class="pill">未配置</span>
+      </div>
+      <div class="sb-row">
+        <button id="llmRun" class="btn small primary">立即分析</button>
+        <label class="sb-mini">自动
+          <select id="llmAuto">
+            <option value="0">关闭</option>
+            <option value="60">每 1 分钟</option>
+            <option value="180">每 3 分钟</option>
+            <option value="300">每 5 分钟</option>
+            <option value="600">每 10 分钟</option>
+          </select>
+        </label>
+      </div>
+      <div id="llmOut" class="llmout"></div>
+      <details class="llmcfg">
+        <summary>模型配置</summary>
+        <div class="sb-row">
+          <label class="sb-mini full">供应商
+            <select id="llmProvider"></select>
+          </label>
+        </div>
+        <div class="sb-row">
+          <label class="sb-mini full">API 地址
+            <input id="llmBaseUrl" placeholder="https://api.deepseek.com">
+          </label>
+        </div>
+        <div class="sb-row">
+          <label class="sb-mini full">模型
+            <input id="llmModel" placeholder="deepseek-chat">
+          </label>
+        </div>
+        <div class="sb-row">
+          <label class="sb-mini full">API Key
+            <input id="llmKey" type="password" placeholder="sk-...">
+          </label>
+        </div>
+        <div class="sb-row">
+          <button id="llmSave" class="btn small">保存配置</button>
+          <button id="llmClear" class="btn small ghost">清空结果</button>
+        </div>
+        <p class="sb-note" id="llmNote"></p>
+      </details>
+      <p class="sb-note">
+        只把<b>按格子聚合后的统计量</b>发给大模型（单量、准时率、平均时长、骑手数、缺口），
+        <b>不含顾客姓名、电话、地址、订单号</b>。
+      </p>
+    </section>
+
+  </div>
+</aside>
+
+<div id="sbBackdrop" class="sb-backdrop"></div>
+
+<script src="/app.js"></script>
+</body>
+</html>

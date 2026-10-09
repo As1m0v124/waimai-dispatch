@@ -1,0 +1,39 @@
+# Python 虚拟环境
+venv/
+.venv/
+
+# 编译产物
+out/
+out-tools/
+waimai-dispatch.jar
+
+# Python 字节码缓存（3.13 是 __pycache__/*.pyc；别提交，会自动重建）
+__pycache__/
+*.py[cod]
+
+# 大模型配置：里面有 API Key，不要提交
+data/llm.properties
+
+# 认证 token：不要提交（提交了等于把接口认证公开）
+data/api-token
+
+# 运行期日志：会一直长，而且只对本机有意义
+data/logs/
+
+# 数据飞轮的样本与模型：属于运行期数据（脱敏，但仍然是本机数据）
+data/learn/
+
+# 路网数据：体积大，而且是可再下载的
+data/osm/*.osm
+data/osm/*.osm.xml
+data/osm/*.osm.bz2
+# 但解析出来的二进制缓存也不用提交（首次加载会自动重建）
+data/osm/*.graph
+
+# PyCharm 本地设置（解释器路径、窗口布局这些换台机器就不对了）……
+.idea/*
+# ……但运行配置要留着：它只写了脚本路径和命令行参数，换台机器照样能用
+!.idea/runConfigurations/
+
+# 保留目录与说明文件
+!data/osm/README.txt
