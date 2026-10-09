@@ -137,8 +137,7 @@ python -X utf8 py\mcp_selftest.py
   `python -X utf8 -m waimai ...` 就够了，而且**绕开了 PowerShell 的执行策略**
   （`.ps1` 默认被禁止运行，得要 `-ExecutionPolicy Bypass`）——
   装了插件只多一个语法高亮，真要跑还是得处理执行策略，解决不了问题。
-  另外注意 `run.ps1` / `build.ps1` / `selftest.ps1` 是 **Java 版**的脚本（对照参考），
-  Python 版对应的是带 `-py` 后缀的那几个。
+
 - **改完代码要重启服务**：`main.py` 是常驻进程，没有热重载，改完按红方块停掉再启动。
 - **端口被占**：默认 8787 已经在跑（比如命令行那个还开着），换一个，例如 `--port 8788`。
 - **浏览器缓存**：前端 `web/` 是静态文件，改了之后用 `Ctrl + F5` 强刷，别用普通刷新。
@@ -173,8 +172,7 @@ temperature=0.3
 autoIntervalSec=300
 ```
 
-格式刻意用 **`key=value`**（`java.util.Properties` 那种，没有 `[section]`），
-这样 Java 版和 Python 版能共用同一个配置文件。
+格式刻意用 **`key=value`**、没有 `[section]`（兼容 `java.util.Properties`，方便其他工具直接读）。
 
 ## 7. 目录速查
 
@@ -185,8 +183,7 @@ py/waimai/           ← Python 实现，全部代码在这里
   route_planner.py   插入启发式 + 2-opt / Or-opt
   world.py           全局状态 + 停单判定
   model.py           数据结构 + Config（所有可调参数）
-  selftest.py        326 项自检
+  selftest.py        478 项自检
 web/                 前端（HTML + 原生 JS + Canvas）
-src/waimai/          Java 版（对照参考，冻结在移植那一刻，不参与 Python 开发）
 data/osm/            放你自己的 .osm 路网文件
 ```

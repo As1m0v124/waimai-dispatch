@@ -2,24 +2,7 @@
 
 按《外卖平台派单系统_项目介绍》复现的一套**可运行**的派单系统：顾客下单 → 订单池 → 每 2 分钟统一派单 → 骑手按规划路线取餐送达 → 记录五个时间点。
 
-> **本仓库只包含 Python 实现。** 原项目另有一份冻结的 Java 对照实现
-> （含对应自检与启动脚本），**未包含在本仓库中**；下文提到 Java 的部分
-> 均为对照与沿革说明，不影响 Python 版的使用。
-
-**两套实现，同一套接口：**
-
-| 版本 | 目录 | 依赖 | 状态 |
-| --- | --- | --- | --- |
-| **Python 3.13** | `py/waimai/` | 零第三方（只用标准库） | **全功能**，后续开发以此为准 |
-| Java 25 | `src/waimai/` | 零第三方（只用 JDK 自带） | **冻结在移植那一刻**，保留作对照参考 |
-
-两边共用同一套 REST 接口，所以 **`web/` 前端和 `verify-api.ps1` 验收脚本两边通用、一行都不用改**。
-
-> **Java 版不是「全功能」，必须说清。** 移植之后新增的功能（骑手增删、模拟城区路网、停单闸门、
-> 顺路占比推迟、随机下单）只在 Python 版实现，Java 版没有 —— 所以同一个验收脚本对 Java 版跑出的是
-> **195 通过 / 62 失败**，62 项全部是「这个功能不存在」，没有一项是既有功能坏掉。
-> 与那 195 项对应的功能集，两版行为一致（数字逐个对得上，见下节）。
-
+Python 3.13 实现，**零第三方依赖**（只用标准库）；`web/` 前端与 `verify-api.ps1` 验收脚本通过同一套 REST 接口与后端解耦。
 距离模型有两种：**抽象城市**（`1.4 × 直线距离`）和**真实路网**（OpenStreetMap 道路图 + Dijkstra 最短路，骑手真的沿着路走）。
 
 ---
@@ -53,12 +36,6 @@ winget install --id Python.Python.3.13 --exact --scope user
 > 在 PyCharm 里手选解释器时也要避开它 —— 真身在 `%LOCALAPPDATA%\Programs\Python\` 下，
 > 详见 [`PYCHARM.md`](PYCHARM.md)。
 
-**Java 版**：JDK 21+。没装也能跑 —— `tools/jdk.ps1` 会自动去找 `JAVA_HOME`、常见安装位置、
-PATH 上的 `javac`，以及 **IntelliJ IDEA 自带的 JDK**（`<IntelliJ 安装目录>\jbr`）。
-
-> IntelliJ 附带的 JBR 是精简版 JDK，没有 `jar.exe`。`build.ps1` 检测到缺少 `jar` 时会改用
-> `tools/JarMaker.java` 打包，所以照样能产出可执行的 `waimai-dispatch.jar`。
-
 ### 启动参数
 
 ```powershell
@@ -76,68 +53,10 @@ powershell -ExecutionPolicy Bypass -File run-py.ps1 -Port 9000 -Speed 60 -Osm sy
 
 ---
 
-## 移植忠实度：数字完全对上
+## 大模型配置文件（data/llm.properties）
 
-这不是「看起来差不多」，而是**关键数字逐个一致**。Python 自检 **326 项全通过**，其中：
-
-| 断言 | Java | Python |
-| --- | --- | --- |
-| 首单绕路 | 1400m | 1400m |
-| 第二单绕路 | 1680m | 1680m |
-| 局部搜索（抽象，3 单） | 22241m → 18371m（省 3870m） | 22241m → 18371m（省 3870m） |
-| 全链路耗时 | 12.5 分 = 派单 2.0 + 赶路 1.3 + 出餐 6.7 + 配送 2.5 | 一字不差 |
-| 合成路网规模 | 484 节点 / 1700 有向边 / 960 线段 | 完全相同 |
-| 路网模式 40 分钟 | 送达 24 单 / 在途 34 单 | 完全相同 |
-| OSM 解析（内联样例） | 8 节点 / 11 边 / 8 线段 | 完全相同 |
-
-不是巧合：插入代价公式、取送约束的表达方式（靠 `gd > gp` 的循环边界）、
-局部搜索的接受条件全部照搬，所以给定同样的输入必须给出同样的数字。
-**先让数字对上，再谈功能** —— 这是移植最有效的验证手段。
-
-### 两版共用一个配置文件
-
-`data/llm.properties` 用的是 **`java.util.Properties` 那种「`key=value`、无 section」格式**，
+`data/llm.properties` 用的是 **`key=value`、无 section** 的格式（兼容 `java.util.Properties`），
 Python 侧刻意**没用 `configparser`** —— 因为 configparser 读不了没有 `[section]` 的文件。
-这样两个实现能共用同一个配置文件，你在两边来回切换时不用重填 API Key。
-
-（这个坑是实测踩出来的：Python 版第一次启动就报
-`File contains no section headers: 'apiKey='`，因为文件是 Java 版写的。）
-
----
-
-## Python ↔ Java 模块对照
-
-Python 的模块划分刻意和 Java 一一对应，方便对照着读：
-
-| 职责 | Python | Java |
-| --- | --- | --- |
-| 数据模型 | `py/waimai/model.py` | `Order.java` / `Rider.java` / … |
-| 距离抽象 | `py/waimai/metric.py` | `Metric.java` / `StraightMetric.java` |
-| 折线工具 | `py/waimai/geom.py` | `Geom.java` |
-| **插入启发式 + 2-opt / Or-opt** | `py/waimai/route_planner.py` | `RoutePlanner.java` |
-| 全局状态 + 布点 | `py/waimai/world.py` | `World.java` |
-| **三档优先级 + 指派单 + 调单** | `py/waimai/dispatcher.py` | `Dispatcher.java` |
-| **时钟 + 沿路推进 + 五个时间点** | `py/waimai/simulator.py` | `Simulator.java` |
-| 统计口径 | `py/waimai/stats.py` | `Stats.java` |
-| HTTP 接口 + 静态文件 | `py/waimai/api.py` | `Api.java` |
-| 自检 | `py/waimai/selftest.py` | `SelfTest.java` |
-| 经纬度投影 | `py/waimai/projection.py` | `Projection.java` |
-| **有向路网（CSR）** | `py/waimai/road_graph.py` | `RoadGraph.java` |
-| **OSM XML 流式解析** | `py/waimai/osm_parser.py` | `OsmParser.java` |
-| **吸附 + Dijkstra 行缓存 + A\*** | `py/waimai/road_metric.py` | `RoadMetric.java` |
-| 内置合成路网 | `py/waimai/synthetic_net.py` | `SyntheticNet.java` |
-| 路网二进制缓存 | `py/waimai/graph_cache.py` | `GraphCache.java` |
-| 路网发现与加载 | `py/waimai/osm_loader.py` | `OsmLoader.java` |
-| **区域研判 + 运力模型** | `py/waimai/zone_analytics.py` | `ZoneAnalytics.java` |
-| **大模型接入** | `py/waimai/llm_config.py` / `llm_client.py` / `llm_advisor.py` | `LlmConfig.java` / `LlmClient.java` / `LlmAdvisor.java` |
-
-语言差异带来的简化：Python 侧少写了 JSON 编解码（标准库 `json` 直接可用，Java 没有所以要手写
-两三百行）、少写了二叉堆（标准库 `heapq`，Java 里手写了 sift_up/sift_down）、
-HTTP 服务用标准库 `http.server`（Java 用 `com.sun.net.httpserver`）。
-
-**没有 Java 对应物的模块**（都是移植之后才加的，所以上表里不会出现）：
-`realistic_net.py`（模拟城区路网）。
-完整的文件清单见下面「目录结构」。
 
 ---
 
@@ -157,8 +76,6 @@ HTTP 服务用标准库 `http.server`（Java 用 `com.sun.net.httpserver`）。
 # Python 版（推荐）
 powershell -ExecutionPolicy Bypass -File run-py.ps1 -Osm hangzhou.osm -Bbox 30.24,120.14,30.29,120.19
 
-# Java 版
-powershell -ExecutionPolicy Bypass -File run.ps1 -Osm hangzhou.osm -Bbox 30.24,120.14,30.29,120.19
 ```
 
 首次加载会解析并写一个同名的 `.graph` 二进制缓存，之后启动就是毫秒级。删掉 `.graph` 可强制重新解析。
@@ -1013,23 +930,14 @@ powershell -ExecutionPolicy Bypass -File selftest-py.ps1
 # MCP 集成测试（56 项）—— 真的起子进程做 JSON-RPC 往返
 powershell -ExecutionPolicy Bypass -File selftest-mcp.ps1
 
-# HTTP 端到端验收（306 项）—— Python 版全绿；Java 版只覆盖到移植时的功能
-powershell -ExecutionPolicy Bypass -File verify-api.ps1              # 默认 8787（Python）
-powershell -ExecutionPolicy Bypass -File verify-api.ps1 -Port 8788   # Java 版
+# HTTP 端到端验收（306 项）
+powershell -ExecutionPolicy Bypass -File verify-api.ps1              # 默认 8787
 
 # 持续负载检查 —— 确认订单池不会无限堆积、骑手不会打满
 powershell -ExecutionPolicy Bypass -File loadcheck.ps1
 ```
 
-> **两个版本的验收范围不一样，这一点必须说清。** `verify-api.ps1` 是同一个脚本，
-> 但 Java 版**冻结在移植那一刻**：骑手增删、模拟城区路网、停单闸门、顺路占比推迟、
-> 随机下单接口都是移植之后才加的功能，Java 版没有。
-> 所以对 Java 版跑这套验收的结果是 **195 通过 / 62 失败**，**全部 62 项失败都是「这个功能不存在」（接口 404 或字段缺失）**，
-> 没有一项是移植时已有的功能坏掉了 —— 与那 195 项对应的功能集，两版行为一致。
-> 脚本遇到不存在的接口会记一次失败并继续（以前会直接中断，那样一个缺失的接口会把后面所有检查都藏掉）。
-> 想要 Java 版也全绿，就得把这些功能补过去；当前按「Java 只作参考资料」处理，所以没有补。
-
-`selftest.ps1` 里几条比较有代表性的断言：
+`py/waimai/selftest.py` 里几条比较有代表性的断言：
 
 - 插入代价精确值：抽象模式下首单 1400 米、第二单 1680 米（手算可验）
 - 拒绝「先送达后取餐」的路线
@@ -1173,10 +1081,7 @@ waimai-dispatch/
 
 - Python 版自检：**478 / 478 通过**（`selftest-py.ps1`）
 - MCP 集成测试：**56 / 56 通过**（`selftest-mcp.ps1`，真的起子进程做 JSON-RPC 往返，含 `--network` 启动路径）
-- Java 版自检：**176 / 176 通过**（`selftest.ps1`）
 - HTTP 端到端（Python）：**306 / 306 通过**（`verify-api.ps1`）
-- HTTP 端到端（Java）：**195 通过 / 62 失败**，62 项全部是「移植之后才加的功能不存在」，
-  没有一项是既有功能坏掉 —— 详见上面「自检与验收」里的说明
 - 持续负载：**短时（本机 20 模拟分钟）通过；长时（325 模拟分钟）不通过** ——
   后者是我修掉倍速 bug 之后才真正跑到的时长，会暴露一个缓慢劣化（准时率 100%→85%，
   而在途订单持续上升、利用率只有 66%）。**我没有放宽阈值去把它变绿**，
